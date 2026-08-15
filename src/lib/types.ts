@@ -1,5 +1,18 @@
 export type ProviderId = "openai" | "anthropic" | "openrouter" | "ollama";
 
+/** A model as reported by the provider's own /models endpoint. */
+export interface ModelInfo {
+  id: string;
+  label: string;
+}
+
+export interface ProjectMeta {
+  id: string;
+  title: string;
+  updatedAt: number;
+  fileCount: number;
+}
+
 export interface Keys {
   openai: string;
   anthropic: string;

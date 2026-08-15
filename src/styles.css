@@ -249,14 +249,30 @@ button.chip:hover {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 300px 200px minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: 300px 6px 200px 6px 520px 6px minmax(0, 1fr);
+}
+.studio-main.dragging {
+  user-select: none;
+  cursor: col-resize;
+}
+.studio-main.dragging .preview-frame {
+  /* iframes swallow pointermove events and break the drag */
+  pointer-events: none;
+}
+.divider {
+  cursor: col-resize;
+  background: linear-gradient(var(--line-dark), var(--line-dark)) center / 1px 100% no-repeat;
+  touch-action: none;
+}
+.divider:hover,
+.studio-main.dragging .divider {
+  background: linear-gradient(var(--ink-bright), var(--ink-bright)) center / 2px 100% no-repeat;
 }
 .pane {
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--line-dark);
 }
 .pane:last-child {
   border-right: none;
@@ -757,11 +773,169 @@ button.chip:hover {
   justify-content: flex-end;
 }
 
+/* ------------------------------------------------------- recent projects */
+.recent {
+  margin-top: 44px;
+}
+.recent-head {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 8px;
+}
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.recent-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  width: 100%;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--linen);
+  font-size: 14px;
+}
+.recent-row:hover .recent-title {
+  color: var(--ink);
+}
+.recent-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-meta {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ash);
+}
+
+/* ----------------------------------------------------------------- drawer */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 13, 11, 0.62);
+  z-index: 40;
+}
+.drawer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: min(340px, 90vw);
+  background: var(--gesso);
+  color: var(--graphite);
+  padding: 20px 20px 24px;
+  overflow-y: auto;
+  animation: slide-in 0.22s ease both;
+}
+@keyframes slide-in {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.drawer-head h2 {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 24px;
+  margin: 0;
+}
+.drawer-new {
+  margin: 4px 0 14px;
+}
+.drawer-empty {
+  font-size: 13px;
+  color: var(--ash);
+}
+.drawer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.drawer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--linen);
+}
+.drawer-row.current .drawer-title {
+  color: var(--ink);
+}
+.drawer-open {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 2px;
+}
+.drawer-title {
+  display: block;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.drawer-meta {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ash);
+  margin-top: 2px;
+}
+.drawer-open:hover .drawer-title {
+  color: var(--ink);
+}
+.drawer-delete {
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ash);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+.drawer-delete:hover {
+  color: var(--err);
+  background: rgba(210, 72, 46, 0.08);
+}
+
+/* model status hints */
+.field-hint.ok-hint {
+  color: var(--ok);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: -6px;
+}
+.field-hint.error-hint {
+  color: var(--err);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: -6px;
+  word-break: break-word;
+}
+
 /* -------------------------------------------------------------- responsive */
 @media (max-width: 1080px) {
   .studio-main {
-    grid-template-columns: 260px minmax(0, 1fr);
+    /* !important intentionally beats the inline resizable-grid style */
+    grid-template-columns: 260px minmax(0, 1fr) !important;
     grid-template-rows: 1fr 1fr;
+  }
+  .divider {
+    display: none;
   }
   .tree-pane {
     display: none;
@@ -769,12 +943,11 @@ button.chip:hover {
 }
 @media (max-width: 680px) {
   .studio-main {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
     grid-template-rows: auto;
     overflow-y: auto;
   }
   .pane {
-    border-right: none;
     border-bottom: 1px solid var(--line-dark);
     min-height: 320px;
   }

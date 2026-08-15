@@ -1,9 +1,21 @@
 import { create } from "zustand";
-import type { BuildReceipt, ChatMsg, Keys, LogLine, ModelChoice, Phase, ProviderId } from "./types";
+import type {
+  BuildReceipt,
+  ChatMsg,
+  Keys,
+  LogLine,
+  ModelChoice,
+  ModelInfo,
+  Phase,
+  ProjectMeta,
+  ProviderId,
+} from "./types";
 import { streamChat } from "./providers";
 import { SYSTEM_PROMPT, buildEditContext, createStreamParser, README_PROMPT } from "./agent";
 import { route } from "./router";
 import { estimateCost } from "./pricing";
+import { fetchModels, loadModelCache, saveModelCache } from "./models";
+import { deleteProjectRecord, getProject, listProjectMetas, upsertProject } from "./db";
 import {
   mountProject,
   onServerReady,
@@ -20,6 +32,8 @@ export interface ChatEntry extends ChatMsg {
 interface State {
   phase: Phase;
   keys: Keys;
+  models: Partial<Record<ProviderId, ModelInfo[]>>;
+  modelErrors: Partial<Record<ProviderId, string>>;
   autoRoute: boolean;
   manualChoice: { provider: ProviderId; model: string } | null;
   autoReadme: boolean;
@@ -36,6 +50,9 @@ interface State {
   settingsOpen: boolean;
   pushOpen: boolean;
   containerLive: boolean;
+  projectId: string | null;
+  projects: ProjectMeta[];
+  projectsOpen: boolean;
 
   setKeys: (k: Partial<Keys>) => void;
   setAutoRoute: (v: boolean) => void;
@@ -45,8 +62,15 @@ interface State {
   setSettingsOpen: (v: boolean) => void;
   setPushOpen: (v: boolean) => void;
   setLogsOpen: (v: boolean) => void;
+  setProjectsOpen: (v: boolean) => void;
   editFile: (path: string, contents: string) => void;
   log: (line: LogLine) => void;
+  initApp: () => Promise<void>;
+  refreshModels: (provider: ProviderId) => Promise<void>;
+  loadProjects: () => Promise<void>;
+  openProject: (id: string) => Promise<void>;
+  startNewProject: () => Promise<void>;
+  removeProject: (id: string) => Promise<void>;
   build: (prompt: string) => Promise<void>;
   followUp: (prompt: string) => Promise<void>;
 }
@@ -59,7 +83,7 @@ function loadKeys(): Keys {
     anthropic: "",
     openrouter: "",
     ollamaUrl: "",
-    ollamaModel: "llama3.1",
+    ollamaModel: "",
     openrouterModel: "openai/gpt-4o",
     github: "",
   };
@@ -75,6 +99,8 @@ function loadKeys(): Keys {
 export const useStore = create<State>((set, get) => ({
   phase: "landing",
   keys: loadKeys(),
+  models: loadModelCache(),
+  modelErrors: {},
   autoRoute: true,
   manualChoice: null,
   autoReadme: true,
@@ -91,6 +117,9 @@ export const useStore = create<State>((set, get) => ({
   settingsOpen: false,
   pushOpen: false,
   containerLive: false,
+  projectId: null,
+  projects: [],
+  projectsOpen: false,
 
   setKeys: (patch) => {
     const keys = { ...get().keys, ...patch };
@@ -104,6 +133,7 @@ export const useStore = create<State>((set, get) => ({
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   setPushOpen: (pushOpen) => set({ pushOpen }),
   setLogsOpen: (logsOpen) => set({ logsOpen }),
+  setProjectsOpen: (projectsOpen) => set({ projectsOpen }),
 
   log: (line) => set((s) => ({ logs: [...s.logs.slice(-499), line] })),
 
@@ -114,6 +144,104 @@ export const useStore = create<State>((set, get) => ({
         get().log({ kind: "err", text: `write ${path}: ${e.message}` }),
       );
     }
+    schedulePersist(set, get);
+  },
+
+  initApp: async () => {
+    void get().loadProjects();
+    const { keys } = get();
+    const providers: ProviderId[] = ["openai", "anthropic", "openrouter", "ollama"];
+    await Promise.allSettled(
+      providers
+        .filter((p) => (p === "ollama" ? keys.ollamaUrl : keys[p]))
+        .map((p) => get().refreshModels(p)),
+    );
+  },
+
+  refreshModels: async (provider) => {
+    const { keys } = get();
+    const hasKey = provider === "ollama" ? keys.ollamaUrl : keys[provider];
+    if (!hasKey) {
+      set((s) => ({ models: { ...s.models, [provider]: undefined } }));
+      return;
+    }
+    try {
+      const list = await fetchModels(provider, keys);
+      set((s) => {
+        const models = { ...s.models, [provider]: list };
+        saveModelCache(models);
+        return { models, modelErrors: { ...s.modelErrors, [provider]: undefined } };
+      });
+      // If the local model name was never set, default to the first installed one.
+      if (provider === "ollama" && !get().keys.ollamaModel && list[0]) {
+        get().setKeys({ ollamaModel: list[0].id });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set((s) => ({ modelErrors: { ...s.modelErrors, [provider]: msg } }));
+    }
+  },
+
+  loadProjects: async () => {
+    try {
+      set({ projects: await listProjectMetas() });
+    } catch {
+      /* IndexedDB unavailable (private mode etc.) — history just stays empty */
+    }
+  },
+
+  openProject: async (id) => {
+    const rec = await getProject(id);
+    if (!rec) return;
+    flushPersist();
+    await resetContainer();
+    set({
+      projectId: rec.id,
+      prompt: rec.prompt,
+      chat: rec.chat ?? [],
+      files: rec.files ?? {},
+      lastChoice: rec.lastChoice ?? null,
+      activeFile: pickDefaultFile(rec.files ?? {}),
+      previewUrl: null,
+      logs: [],
+      error: null,
+      projectsOpen: false,
+      containerLive: false,
+      writingFile: null,
+    });
+    if (Object.keys(rec.files ?? {}).length > 0) {
+      await bootProject(set, get);
+    } else {
+      set({ phase: "ready" });
+    }
+  },
+
+  startNewProject: async () => {
+    flushPersist();
+    await persistNow(set, get);
+    await resetContainer();
+    set({
+      phase: "landing",
+      prompt: "",
+      chat: [],
+      files: {},
+      activeFile: null,
+      writingFile: null,
+      previewUrl: null,
+      logs: [],
+      lastChoice: null,
+      error: null,
+      containerLive: false,
+      projectId: null,
+      projectsOpen: false,
+    });
+    void get().loadProjects();
+  },
+
+  removeProject: async (id) => {
+    await deleteProjectRecord(id);
+    if (get().projectId === id) set({ projectId: null }); // keeps working copy; next save forks it
+    await get().loadProjects();
   },
 
   build: async (prompt) => {
@@ -128,12 +256,62 @@ export const useStore = create<State>((set, get) => ({
 type Set = (fn: Partial<State> | ((s: State) => Partial<State>)) => void;
 type Get = () => State;
 
+function pickDefaultFile(files: Record<string, string>): string | null {
+  const paths = Object.keys(files);
+  return paths.find((p) => p.endsWith("src/App.tsx")) ?? paths.sort()[0] ?? null;
+}
+
+// ------------------------------------------------------------- persistence
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushPersist() {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+}
+
+function schedulePersist(set: Set, get: Get) {
+  flushPersist();
+  persistTimer = setTimeout(() => void persistNow(set, get), 800);
+}
+
+async function persistNow(set: Set, get: Get) {
+  flushPersist();
+  const s = get();
+  if (Object.keys(s.files).length === 0 && s.chat.length === 0) return;
+  let id = s.projectId;
+  if (!id) {
+    id = crypto.randomUUID();
+    set({ projectId: id });
+  }
+  const firstUser = s.chat.find((c) => c.role === "user")?.content ?? "";
+  const title = (s.prompt || firstUser || "untitled").slice(0, 64);
+  try {
+    await upsertProject({
+      id,
+      title,
+      prompt: s.prompt,
+      chat: s.chat,
+      files: s.files,
+      lastChoice: s.lastChoice,
+      updatedAt: Date.now(),
+    });
+    void get().loadProjects();
+  } catch (e) {
+    get().log({ kind: "err", text: `local save failed: ${e instanceof Error ? e.message : e}` });
+  }
+}
+
+// ------------------------------------------------------------------- agent
+
 function pickModel(prompt: string, get: Get): ModelChoice | null {
-  const { autoRoute, manualChoice, keys } = get();
+  const { autoRoute, manualChoice, keys, models } = get();
   if (!autoRoute && manualChoice) {
     return { provider: manualChoice.provider, model: manualChoice.model, reason: "manual selection" };
   }
-  return route(prompt, keys);
+  return route(prompt, keys, models);
 }
 
 async function runAgent(prompt: string, isFirstBuild: boolean, set: Set, get: Get) {
@@ -221,11 +399,13 @@ async function runAgent(prompt: string, isFirstBuild: boolean, set: Set, get: Ge
 
   if (!isFirstBuild) {
     set({ phase: "ready" });
+    await persistNow(set, get);
     return;
   }
 
   if (Object.keys(newFiles).length === 0) {
     set({ phase: "error", error: "The model returned no files. Try a stronger model or rephrase." });
+    await persistNow(set, get);
     return;
   }
 
@@ -254,6 +434,7 @@ async function runAgent(prompt: string, isFirstBuild: boolean, set: Set, get: Ge
     }
   }
 
+  await persistNow(set, get);
   await bootProject(set, get);
 }
 

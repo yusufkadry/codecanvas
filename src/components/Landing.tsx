@@ -2,17 +2,22 @@ import { useState } from "react";
 import { useStore } from "../lib/store";
 import { hasAnyKey } from "../lib/providers";
 import { route } from "../lib/router";
+import { timeAgo } from "../lib/db";
 
 export function Landing() {
   const [value, setValue] = useState("");
   const keys = useStore((s) => s.keys);
+  const models = useStore((s) => s.models);
   const build = useStore((s) => s.build);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const autoRoute = useStore((s) => s.autoRoute);
   const manualChoice = useStore((s) => s.manualChoice);
+  const projects = useStore((s) => s.projects);
+  const openProject = useStore((s) => s.openProject);
 
   const keysReady = hasAnyKey(keys);
-  const preview = value.trim() && keysReady && autoRoute ? route(value, keys) : null;
+  const preview = value.trim() && keysReady && autoRoute ? route(value, keys, models) : null;
+  const recent = projects.slice(0, 5);
 
   function submit() {
     const prompt = value.trim();
@@ -69,12 +74,30 @@ export function Landing() {
           </span>
           <span className="chip ghost">runs entirely in your browser</span>
         </div>
+
+        {recent.length > 0 && (
+          <section className="recent" aria-label="Recent projects">
+            <div className="recent-head">Recent — saved on this device</div>
+            <ul className="recent-list">
+              {recent.map((p) => (
+                <li key={p.id}>
+                  <button className="recent-row as-button" onClick={() => void openProject(p.id)}>
+                    <span className="recent-title">{p.title}</span>
+                    <span className="recent-meta">
+                      {p.fileCount} files · {timeAgo(p.updatedAt)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </main>
 
       <footer className="landing-foot">
         <p>
-          Open source. No backend. Your keys and code stay on this machine — verify it in the
-          network tab.
+          Open source. No backend. Your keys, code, and history stay on this machine — verify it in
+          the network tab.
         </p>
       </footer>
     </div>

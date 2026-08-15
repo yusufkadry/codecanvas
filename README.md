@@ -11,8 +11,11 @@ There is no backend. No accounts. No telemetry. Your API keys and your code neve
 Tools like this usually run your code on someone's hosted sandbox, which means subscriptions, credits, and your code on their machines. CodeCanvas moves the whole loop client-side:
 
 - **BYOK or local** — bring an OpenAI / Anthropic / OpenRouter key, or point it at Ollama / LM Studio and pay nothing.
-- **Auto-router** — given multiple keys, it classifies each task and picks the best model for it (heavy build → strongest model, small tweak → cheapest). Or pick manually.
+- **Every model your key unlocks** — model lists are fetched live from each provider's `/models` endpoint, not hardcoded. New releases show up the day they ship; local models are auto-detected from your Ollama install.
+- **Auto-router** — given multiple keys, it classifies each task and picks the best model for it (heavy build → strongest model, small tweak → cheapest), ranked over your real model list so it auto-upgrades to new releases. Or pick manually from everything you have.
+- **On-device project history** — every build (chat, files, model, cost) is saved to IndexedDB in your browser. Reopen a project and it re-boots instantly. Nothing is uploaded, ever.
 - **Real execution** — WebContainers runs `npm install` and a live Vite dev server in-browser. The preview is the actual app, not a mock.
+- **Your layout** — drag the dividers between chat, files, editor, and preview; the layout persists.
 - **Ship like an engineer** — push to a new repo, or open a **pull request** against an existing one (your default branch is never touched). Every push step reports success/failure explicitly — no silent no-ops.
 - **Build receipts** — token counts and estimated dollar cost per build, in the chat and in the PR body.
 - **Pre-push dependency scan** — best-effort check of generated dependencies against [OSV.dev](https://osv.dev).
@@ -46,6 +49,7 @@ Static hosting only — Vercel works out of the box (`vercel.json` carries the h
 ## Trust model
 
 - Keys live in `localStorage` and are sent **only** to the provider you configured (OpenAI, Anthropic, OpenRouter, your local server) or, for pushes, to `api.github.com`.
+- Projects — chats, files, receipts — live in **IndexedDB on your device**. There is no sync, no account, no upload. Clearing site data deletes them.
 - Anthropic calls use their documented browser opt-in header; OpenRouter and OpenAI are called directly.
 - The GitHub token needs repo contents + pull request permissions and never goes anywhere but GitHub.
 - Everything above is auditable in ~2,500 lines of TypeScript in this repo.

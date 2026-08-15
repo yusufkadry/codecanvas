@@ -1,6 +1,7 @@
-import type { Keys, ModelChoice, ProviderId } from "./types";
+import type { Keys, ModelChoice, ModelInfo, ProviderId } from "./types";
 
 type Tier = "light" | "standard" | "heavy";
+type ModelMap = Partial<Record<ProviderId, ModelInfo[]>>;
 
 const HEAVY_HINTS =
   /\b(auth|login|database|db|realtime|websocket|drag|kanban|editor|game|chart|dashboard|multiplayer|payment|stripe|algorithm|complex|full[- ]stack|3d|canvas|animation engine)\b/i;
@@ -8,35 +9,42 @@ const LIGHT_HINTS = /\b(button|counter|snippet|tiny|simple|single|one[- ]file|la
 
 function classify(prompt: string): { tier: Tier; why: string } {
   const p = prompt.trim();
-  if (p.length > 400 || HEAVY_HINTS.test(p)) {
-    return { tier: "heavy", why: "complex build detected" };
-  }
-  if (p.length < 140 && LIGHT_HINTS.test(p)) {
-    return { tier: "light", why: "small task detected" };
-  }
+  if (p.length > 400 || HEAVY_HINTS.test(p)) return { tier: "heavy", why: "complex build detected" };
+  if (p.length < 140 && LIGHT_HINTS.test(p)) return { tier: "light", why: "small task detected" };
   return { tier: "standard", why: "standard app build" };
 }
 
-/** Per-tier preference order. First provider with a key wins. */
-const PREFS: Record<Tier, { provider: ProviderId; model: (k: Keys) => string }[]> = {
-  heavy: [
-    { provider: "anthropic", model: () => "claude-sonnet-4-6" },
-    { provider: "openai", model: () => "gpt-4.1" },
-    { provider: "openrouter", model: (k) => k.openrouterModel },
-    { provider: "ollama", model: (k) => k.ollamaModel },
-  ],
-  standard: [
-    { provider: "openai", model: () => "gpt-4o" },
-    { provider: "anthropic", model: () => "claude-sonnet-4-6" },
-    { provider: "openrouter", model: (k) => k.openrouterModel },
-    { provider: "ollama", model: (k) => k.ollamaModel },
-  ],
-  light: [
-    { provider: "openai", model: () => "gpt-4o-mini" },
-    { provider: "anthropic", model: () => "claude-haiku-4-5-20251001" },
-    { provider: "ollama", model: (k) => k.ollamaModel },
-    { provider: "openrouter", model: (k) => k.openrouterModel },
-  ],
+/**
+ * Ranked patterns matched against the user's LIVE model list (newest-first
+ * from the fetcher), so new releases are picked up automatically. The
+ * hardcoded FALLBACK only applies before the first successful model fetch.
+ */
+const RANK: Record<"openai" | "anthropic", Record<Tier, RegExp[]>> = {
+  openai: {
+    heavy: [/^gpt-5(?!.*(mini|nano))/i, /^o3(?!-mini)/i, /^gpt-4\.1(?!.*(mini|nano))/i, /^gpt-4o(?!.*mini)/i],
+    standard: [/^gpt-5-mini/i, /^gpt-4\.1(?!.*(mini|nano))/i, /^gpt-4o(?!.*mini)/i, /^gpt-5(?!.*nano)/i],
+    light: [/nano/i, /mini/i, /^gpt-4o$/i],
+  },
+  anthropic: {
+    heavy: [/opus/i, /sonnet/i],
+    standard: [/sonnet/i, /opus/i],
+    light: [/haiku/i, /sonnet/i],
+  },
+};
+
+const FALLBACK: Record<"openai" | "anthropic", Record<Tier, string>> = {
+  openai: { heavy: "gpt-4.1", standard: "gpt-4o", light: "gpt-4o-mini" },
+  anthropic: {
+    heavy: "claude-sonnet-4-6",
+    standard: "claude-sonnet-4-6",
+    light: "claude-haiku-4-5-20251001",
+  },
+};
+
+const ORDER: Record<Tier, ProviderId[]> = {
+  heavy: ["anthropic", "openai", "openrouter", "ollama"],
+  standard: ["openai", "anthropic", "openrouter", "ollama"],
+  light: ["openai", "anthropic", "ollama", "openrouter"],
 };
 
 function keyFor(keys: Keys, p: ProviderId): string {
@@ -52,45 +60,86 @@ function keyFor(keys: Keys, p: ProviderId): string {
   }
 }
 
-/**
- * Auto mode: classify the prompt, then pick the best model among the
- * providers the user has actually configured.
- */
-export function route(prompt: string, keys: Keys): ModelChoice | null {
-  const { tier, why } = classify(prompt);
-  for (const pref of PREFS[tier]) {
-    if (keyFor(keys, pref.provider)) {
-      return {
-        provider: pref.provider,
-        model: pref.model(keys),
-        reason: `${why} → ${pref.model(keys)}`,
-      };
+function pickFrom(models: ModelMap, provider: ProviderId, tier: Tier, keys: Keys): string {
+  if (provider === "openrouter") return keys.openrouterModel;
+  if (provider === "ollama") return keys.ollamaModel || models.ollama?.[0]?.id || "";
+  const list = models[provider];
+  if (list?.length) {
+    for (const re of RANK[provider][tier]) {
+      const hit = list.find((m) => re.test(m.id));
+      if (hit) return hit.id;
     }
+    return list[0].id; // newest available beats nothing
   }
-  return null; // no keys configured at all
+  return FALLBACK[provider][tier];
 }
 
-/** All manually-selectable options given the configured keys. */
-export function manualOptions(keys: Keys): { provider: ProviderId; model: string; label: string }[] {
-  const out: { provider: ProviderId; model: string; label: string }[] = [];
+/** Auto mode: classify, then pick the best model the user's keys can reach. */
+export function route(prompt: string, keys: Keys, models: ModelMap): ModelChoice | null {
+  const { tier, why } = classify(prompt);
+  for (const provider of ORDER[tier]) {
+    if (!keyFor(keys, provider)) continue;
+    const model = pickFrom(models, provider, tier, keys);
+    if (model) return { provider, model, reason: `${why} → ${model}` };
+  }
+  return null;
+}
+
+export interface ModelGroup {
+  provider: ProviderId;
+  label: string;
+  options: ModelInfo[];
+}
+
+/**
+ * Everything the user can manually select — the FULL fetched list per
+ * provider, not a curated subset. Falls back to a minimal set only before
+ * the first fetch succeeds.
+ */
+export function manualGroups(keys: Keys, models: ModelMap): ModelGroup[] {
+  const groups: ModelGroup[] = [];
   if (keys.anthropic) {
-    out.push(
-      { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-      { provider: "anthropic", model: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-    );
+    groups.push({
+      provider: "anthropic",
+      label: "Anthropic",
+      options: models.anthropic?.length
+        ? models.anthropic
+        : [
+            { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+            { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+          ],
+    });
   }
   if (keys.openai) {
-    out.push(
-      { provider: "openai", model: "gpt-4.1", label: "GPT-4.1" },
-      { provider: "openai", model: "gpt-4o", label: "GPT-4o" },
-      { provider: "openai", model: "gpt-4o-mini", label: "GPT-4o mini" },
-    );
+    groups.push({
+      provider: "openai",
+      label: "OpenAI",
+      options: models.openai?.length
+        ? models.openai
+        : [
+            { id: "gpt-4.1", label: "gpt-4.1" },
+            { id: "gpt-4o", label: "gpt-4o" },
+            { id: "gpt-4o-mini", label: "gpt-4o-mini" },
+          ],
+    });
   }
   if (keys.openrouter) {
-    out.push({ provider: "openrouter", model: keys.openrouterModel, label: `OpenRouter · ${keys.openrouterModel}` });
+    groups.push({
+      provider: "openrouter",
+      label: "OpenRouter",
+      options: models.openrouter?.length
+        ? models.openrouter
+        : [{ id: keys.openrouterModel, label: keys.openrouterModel }],
+    });
   }
   if (keys.ollamaUrl) {
-    out.push({ provider: "ollama", model: keys.ollamaModel, label: `Local · ${keys.ollamaModel}` });
+    groups.push({
+      provider: "ollama",
+      label: "Local",
+      options: models.ollama?.length
+        ? models.ollama
+        : [{ id: keys.ollamaModel, label: keys.ollamaModel }],
+    });
   }
-  return out;
+  return groups;
 }
