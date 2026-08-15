@@ -1,0 +1,28 @@
+{
+  "name": "codecanvas",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Open-source, client-side AI coding agent + IDE. Your keys, your browser, zero backend.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@webcontainer/api": "^1.5.1",
+    "monaco-editor": "^0.52.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
