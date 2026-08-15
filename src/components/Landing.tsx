@@ -111,7 +111,7 @@ export function Landing() {
           <em>Code</em>Canvas
         </span>
         <nav className="landing-nav">
-          <a href="https://github.com/" target="_blank" rel="noreferrer" className="quiet-link">
+          <a href="https://github.com/yusufkadry/codecanvas" target="_blank" rel="noreferrer" className="quiet-link">
             Source
           </a>
           <button className="quiet-link as-button" onClick={() => setSettingsOpen(true)}>
