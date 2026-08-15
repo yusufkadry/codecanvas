@@ -5,6 +5,8 @@ import { FileTree } from "./FileTree";
 import { EditorPane } from "./EditorPane";
 import { PreviewPane } from "./PreviewPane";
 import { LogBar } from "./LogBar";
+import { CompareView } from "./CompareView";
+import { downloadZip } from "../lib/zip";
 
 interface Layout {
   chat: number;
@@ -26,13 +28,12 @@ function loadLayout(): Layout {
   return DEFAULT_LAYOUT;
 }
 
-function clampLayout(which: keyof Layout, next: Layout, containerW: number): Layout {
+function clampLayout(next: Layout, containerW: number): Layout {
   const out = { ...next };
   out.chat = Math.min(640, Math.max(200, out.chat));
   out.tree = Math.min(420, Math.max(120, out.tree));
   const editorMax = Math.max(280, containerW - out.chat - out.tree - 3 * DIVIDER - 280);
   out.editor = Math.min(editorMax, Math.max(280, out.editor));
-  void which;
   return out;
 }
 
@@ -42,7 +43,9 @@ export function Workspace() {
   const setProjectsOpen = useStore((s) => s.setProjectsOpen);
   const startNewProject = useStore((s) => s.startNewProject);
   const fileCount = useStore((s) => Object.keys(s.files).length);
+  const files = useStore((s) => s.files);
   const prompt = useStore((s) => s.prompt);
+  const comparing = useStore((s) => s.compare !== null);
 
   const [layout, setLayout] = useState<Layout>(loadLayout);
   const [dragging, setDragging] = useState(false);
@@ -57,7 +60,7 @@ export function Workspace() {
 
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
-      setLayout(clampLayout(which, { ...start, [which]: start[which] + dx }, containerW));
+      setLayout(clampLayout({ ...start, [which]: start[which] + dx }, containerW));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -88,6 +91,14 @@ export function Workspace() {
           <button className="btn-ghost btn-sm" onClick={() => setProjectsOpen(true)}>
             Projects
           </button>
+          <button
+            className="btn-ghost btn-sm"
+            onClick={() => downloadZip(files, prompt || "codecanvas-project")}
+            disabled={fileCount === 0}
+            title="Download the project as a .zip"
+          >
+            Export
+          </button>
           <button className="btn-ghost btn-sm" onClick={() => setSettingsOpen(true)}>
             Keys
           </button>
@@ -96,39 +107,46 @@ export function Workspace() {
           </button>
         </div>
       </header>
-      <main
-        className={`studio-main ${dragging ? "dragging" : ""}`}
-        ref={mainRef}
-        style={{
-          gridTemplateColumns: `${layout.chat}px ${DIVIDER}px ${layout.tree}px ${DIVIDER}px ${layout.editor}px ${DIVIDER}px minmax(0, 1fr)`,
-        }}
-      >
-        <ChatPane />
-        <div
-          className="divider"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize chat"
-          onPointerDown={(e) => startDrag("chat", e)}
-        />
-        <FileTree />
-        <div
-          className="divider"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize file tree"
-          onPointerDown={(e) => startDrag("tree", e)}
-        />
-        <EditorPane />
-        <div
-          className="divider"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize editor"
-          onPointerDown={(e) => startDrag("editor", e)}
-        />
-        <PreviewPane />
-      </main>
+      {comparing ? (
+        <main className="studio-main compare-layout">
+          <ChatPane />
+          <CompareView />
+        </main>
+      ) : (
+        <main
+          className={`studio-main ${dragging ? "dragging" : ""}`}
+          ref={mainRef}
+          style={{
+            gridTemplateColumns: `${layout.chat}px ${DIVIDER}px ${layout.tree}px ${DIVIDER}px ${layout.editor}px ${DIVIDER}px minmax(0, 1fr)`,
+          }}
+        >
+          <ChatPane />
+          <div
+            className="divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize chat"
+            onPointerDown={(e) => startDrag("chat", e)}
+          />
+          <FileTree />
+          <div
+            className="divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize file tree"
+            onPointerDown={(e) => startDrag("tree", e)}
+          />
+          <EditorPane />
+          <div
+            className="divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize editor"
+            onPointerDown={(e) => startDrag("editor", e)}
+          />
+          <PreviewPane />
+        </main>
+      )}
       <LogBar />
     </div>
   );

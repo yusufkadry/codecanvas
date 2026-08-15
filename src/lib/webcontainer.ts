@@ -69,6 +69,11 @@ export async function writeProjectFile(path: string, contents: string): Promise<
   await wc.fs.writeFile(path, contents);
 }
 
+export async function removeProjectFile(path: string): Promise<void> {
+  const wc = await getContainer();
+  await wc.fs.rm(path, { force: true });
+}
+
 export async function runCommand(
   cmd: string,
   args: string[],

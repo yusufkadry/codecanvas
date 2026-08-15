@@ -18,17 +18,21 @@ export function SettingsModal() {
   const models = useStore((s) => s.models);
   const refreshModels = useStore((s) => s.refreshModels);
   const autoRoute = useStore((s) => s.autoRoute);
-  const setAutoRoute = useStore((s) => s.setAutoRoute);
-  const manualChoice = useStore((s) => s.manualChoice);
-  const setManualChoice = useStore((s) => s.setManualChoice);
   const autoReadme = useStore((s) => s.autoReadme);
-  const setAutoReadme = useStore((s) => s.setAutoReadme);
+  const warnHeavy = useStore((s) => s.warnHeavy);
+  const maxCostUsd = useStore((s) => s.maxCostUsd);
+  const manualChoice = useStore((s) => s.manualChoice);
+  const compareModels = useStore((s) => s.compareModels);
+  const toggleCompareModel = useStore((s) => s.toggleCompareModel);
+  const setPref = useStore((s) => s.setPref);
   const error = useStore((s) => s.error);
 
   if (!open) return null;
   const groups = manualGroups(keys, models);
   const ollamaList = models.ollama ?? [];
   const openrouterList = models.openrouter ?? [];
+  const isPicked = (provider: ProviderId, model: string) =>
+    compareModels.some((c) => c.provider === provider && c.model === model);
 
   return (
     <div className="modal-backdrop" onClick={() => setOpen(false)}>
@@ -118,10 +122,7 @@ export function SettingsModal() {
           <label className="field">
             <span>Local model</span>
             {ollamaList.length > 0 ? (
-              <select
-                value={keys.ollamaModel}
-                onChange={(e) => setKeys({ ollamaModel: e.target.value })}
-              >
+              <select value={keys.ollamaModel} onChange={(e) => setKeys({ ollamaModel: e.target.value })}>
                 {ollamaList.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
@@ -146,7 +147,11 @@ export function SettingsModal() {
 
         <div className="field-row">
           <label className="check">
-            <input type="checkbox" checked={autoRoute} onChange={(e) => setAutoRoute(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={autoRoute}
+              onChange={(e) => setPref({ autoRoute: e.target.checked })}
+            />
             <span>Auto-route: pick the best model per task from your available models</span>
           </label>
         </div>
@@ -160,7 +165,7 @@ export function SettingsModal() {
                 if (idx === -1) return;
                 const provider = e.target.value.slice(0, idx) as ProviderId;
                 const model = e.target.value.slice(idx + 2);
-                if (provider && model) setManualChoice({ provider, model });
+                if (provider && model) setPref({ manualChoice: { provider, model } });
               }}
             >
               <option value="" disabled>
@@ -180,14 +185,81 @@ export function SettingsModal() {
         )}
 
         <div className="field-row">
+          <span className="field-label-strong">Cost controls</span>
+        </div>
+        <div className="field-row">
           <label className="check">
-            <input type="checkbox" checked={autoReadme} onChange={(e) => setAutoReadme(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={warnHeavy}
+              onChange={(e) => setPref({ warnHeavy: e.target.checked })}
+            />
+            <span>Warn before heavy builds on paid models (shows a ballpark cost first)</span>
+          </label>
+        </div>
+        <label className="field">
+          <span>Hard cost cap per message (USD) — aborts the stream if the estimate passes it</span>
+          <input
+            type="number"
+            min="0"
+            step="0.05"
+            value={maxCostUsd ?? ""}
+            onChange={(e) =>
+              setPref({ maxCostUsd: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })
+            }
+            placeholder="off"
+          />
+        </label>
+        <p className="field-hint">
+          Enforced from token estimates, so only models with known pricing (see src/lib/pricing.ts)
+          can trip it. Aborted builds keep whatever files already finished.
+        </p>
+
+        <div className="field-row">
+          <span className="field-label-strong">Compare candidates (pick 2–3)</span>
+        </div>
+        <div className="compare-picker">
+          {groups.length === 0 && <p className="field-hint">Add a key to pick candidates.</p>}
+          {groups.map((g) => (
+            <div key={g.provider} className="compare-group">
+              <div className="compare-group-label">{g.label}</div>
+              {g.options.slice(0, 12).map((o) => {
+                const picked = isPicked(g.provider, o.id);
+                return (
+                  <label key={o.id} className={`check compare-check ${picked ? "picked" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={picked}
+                      disabled={!picked && compareModels.length >= 3}
+                      onChange={() =>
+                        toggleCompareModel({ provider: g.provider, model: o.id, label: o.label })
+                      }
+                    />
+                    <span>{o.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <p className="field-hint">
+          Toggle "⇄ compare" on the input to race these on your next build and pick the winner. Each
+          candidate bills its own tokens.
+        </p>
+
+        <div className="field-row">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={autoReadme}
+              onChange={(e) => setPref({ autoReadme: e.target.checked })}
+            />
             <span>Write a README.md after each build</span>
           </label>
         </div>
 
         <label className="field">
-          <span>GitHub personal access token (for push / PRs)</span>
+          <span>GitHub personal access token (for push / PRs / private imports)</span>
           <input
             type="password"
             value={keys.github}

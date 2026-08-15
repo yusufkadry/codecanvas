@@ -56,10 +56,37 @@ export interface BuildReceipt {
 export type Phase =
   | "landing"
   | "thinking" // model is streaming files
+  | "comparing" // multiple models racing; winner boots
   | "installing" // npm install in WebContainer
   | "starting" // dev server booting
   | "ready" // preview live
   | "error";
+
+export type MsgMode = "build" | "ideate";
+
+export type ChatStatus = "queued" | "streaming" | "done" | "error" | "aborted";
+
+export interface DiffLine {
+  t: "ctx" | "add" | "del" | "gap";
+  s: string;
+}
+
+export interface FileChange {
+  path: string;
+  added: number;
+  removed: number;
+  isNew?: boolean;
+  lines?: DiffLine[] | null;
+}
+
+export interface Checkpoint {
+  id: string;
+  label: string;
+  at: number;
+  files: Record<string, string>;
+}
+
+export type CandidateStatus = "streaming" | "done" | "error" | "aborted";
 
 export interface LogLine {
   kind: "info" | "cmd" | "out" | "err";

@@ -13,7 +13,14 @@ Tools like this usually run your code on someone's hosted sandbox, which means s
 - **BYOK or local** — bring an OpenAI / Anthropic / OpenRouter key, or point it at Ollama / LM Studio and pay nothing.
 - **Every model your key unlocks** — model lists are fetched live from each provider's `/models` endpoint, not hardcoded. New releases show up the day they ship; local models are auto-detected from your Ollama install.
 - **Auto-router** — given multiple keys, it classifies each task and picks the best model for it (heavy build → strongest model, small tweak → cheapest), ranked over your real model list so it auto-upgrades to new releases. Or pick manually from everything you have.
-- **On-device project history** — every build (chat, files, model, cost) is saved to IndexedDB in your browser. Reopen a project and it re-boots instantly. Nothing is uploaded, ever.
+- **Build + Ideate modes** — Ideate strips the file protocol entirely: the model discusses, plans, and answers without emitting code, so thinking is cheap. Flip to Build when you're ready.
+- **Never blocked** — ideate questions answer instantly even mid-build (parallel lane); build requests queue safely and fire when the current build lands. One build stream at a time by design: two agents writing the same files is corruption, not concurrency.
+- **Compare mode** — race 2–3 models on the same prompt, read their code side by side with per-candidate receipts, and only the winner boots into the container. The safe version of parallel codegen.
+- **Cost controls** — a ballpark-cost confirm before heavy builds on paid models, plus a hard per-message dollar cap that aborts the stream mid-flight if the estimate crosses it (enforceable only for models with known pricing in `src/lib/pricing.ts`).
+- **Checkpoints & diffs** — every build turn snapshots the project (last 20). See exactly what changed per file (+/− line diffs) and restore any prior version in one click.
+- **Import a repo** — paste a GitHub URL, its text files pull straight into the editor and container (public repos keyless; private with your PAT). Edit an existing codebase, not just greenfield.
+- **Zip export** — download the whole project without touching GitHub. The zip writer is 100 dependency-free lines in this repo.
+- **On-device project history** — every build (chat, files, checkpoints, model, cost) is saved to IndexedDB in your browser. Reopen a project and it re-boots instantly. Nothing is uploaded, ever.
 - **Real execution** — WebContainers runs `npm install` and a live Vite dev server in-browser. The preview is the actual app, not a mock.
 - **Your layout** — drag the dividers between chat, files, editor, and preview; the layout persists.
 - **Ship like an engineer** — push to a new repo, or open a **pull request** against an existing one (your default branch is never touched). Every push step reports success/failure explicitly — no silent no-ops.

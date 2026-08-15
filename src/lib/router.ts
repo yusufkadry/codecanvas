@@ -14,6 +14,11 @@ function classify(prompt: string): { tier: Tier; why: string } {
   return { tier: "standard", why: "standard app build" };
 }
 
+/** Exposed for the pre-build cost warning. */
+export function classifyTier(prompt: string): Tier {
+  return classify(prompt).tier;
+}
+
 /**
  * Ranked patterns matched against the user's LIVE model list (newest-first
  * from the fetcher), so new releases are picked up automatically. The

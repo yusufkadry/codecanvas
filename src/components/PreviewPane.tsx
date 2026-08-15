@@ -2,6 +2,7 @@ import { useStore } from "../lib/store";
 
 const PHASE_COPY: Record<string, string> = {
   thinking: "The model is writing files…",
+  comparing: "Models are racing — pick a winner to boot it.",
   installing: "Installing dependencies in your browser…",
   starting: "Starting the dev server…",
 };

@@ -3,6 +3,7 @@ import { useStore } from "../lib/store";
 
 const PHASE_LABEL: Record<string, string> = {
   thinking: "writing files",
+  comparing: "comparing models",
   installing: "npm install",
   starting: "starting dev server",
   ready: "live",

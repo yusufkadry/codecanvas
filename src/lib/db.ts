@@ -1,4 +1,4 @@
-import type { ModelChoice, ProjectMeta } from "./types";
+import type { Checkpoint, ModelChoice, ProjectMeta } from "./types";
 import type { ChatEntry } from "./store";
 
 /**
@@ -16,6 +16,7 @@ export interface ProjectRecord {
   prompt: string;
   chat: ChatEntry[];
   files: Record<string, string>;
+  checkpoints: Checkpoint[];
   lastChoice: ModelChoice | null;
   createdAt: number;
   updatedAt: number;

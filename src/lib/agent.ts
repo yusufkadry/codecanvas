@@ -37,6 +37,33 @@ PROJECT REQUIREMENTS:
 FOLLOW-UP EDITS:
 - When the user asks for changes, re-emit ONLY the files that change, as complete files in <cc-file> blocks. Never emit diffs or partial files.`;
 
+export const IDEATE_PROMPT = `You are CodeCanvas in ideation mode: a sharp, blunt technical cofounder helping plan and reason about a project.
+
+RULES:
+- Discuss architecture, tradeoffs, features, naming, scope — whatever is asked.
+- NEVER emit code files. NEVER use <cc-file> blocks. Small inline snippets (a few lines) are fine when they clarify a point.
+- Be concise and decisive. State a recommendation, then the reasoning. No filler.`;
+
+export function ideateContext(paths: string[]): string {
+  return paths.length
+    ? `Project context — current files (paths only, ask if you need contents): ${paths.join(", ")}`
+    : "Project context: no files yet — greenfield.";
+}
+
+/** Anthropic requires strictly alternating roles starting with "user";
+ *  merge consecutive same-role messages and drop a leading assistant turn. */
+export function toAlternating(msgs: { role: "user" | "assistant"; content: string }[]) {
+  const out: { role: "user" | "assistant"; content: string }[] = [];
+  for (const m of msgs) {
+    if (!m.content.trim()) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === m.role) last.content += `\n\n${m.content}`;
+    else out.push({ ...m });
+  }
+  while (out.length && out[0].role === "assistant") out.shift();
+  return out;
+}
+
 export function buildEditContext(files: Record<string, string>): string {
   const MAX = 90_000;
   let out = "CURRENT PROJECT FILES:\n";

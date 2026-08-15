@@ -124,6 +124,104 @@ export async function pushToNewRepo(opts: {
   return { repoUrl: repo.html_url, commitUrl: commit.html_url };
 }
 
+// --------------------------------------------------------------- repo import
+
+const SKIP_DIRS = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.cache)(\/|$)/;
+const TEXT_EXT =
+  /\.(ts|tsx|js|jsx|mjs|cjs|json|css|scss|html|md|txt|svg|ya?ml|toml|env|example|lock|editorconfig|prettierrc|eslintrc)$/i;
+const DOTFILE_ALLOW = new Set([".gitignore", ".env.example", ".prettierrc", ".eslintrc", ".npmrc"]);
+const MAX_FILE_BYTES = 200_000;
+const MAX_FILES = 250;
+
+function ghHeaders(token: string): Record<string, string> {
+  const h: Record<string, string> = {
+    accept: "application/vnd.github+json",
+    "x-github-api-version": "2022-11-28",
+  };
+  if (token) h.authorization = `Bearer ${token}`;
+  return h;
+}
+
+async function ghGet<T>(token: string, path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`, { headers: ghHeaders(token) });
+  if (!res.ok) {
+    let msg = `${res.status}`;
+    try {
+      const j = await res.json();
+      msg = `${res.status} — ${j.message ?? ""}`;
+    } catch {
+      /* status only */
+    }
+    throw new Error(`GitHub GET ${path}: ${msg}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+function decodeBase64Utf8(b64: string): string {
+  const bin = atob(b64.replace(/\n/g, ""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+export interface ImportResult {
+  files: Record<string, string>;
+  defaultBranch: string;
+  skipped: number;
+}
+
+/**
+ * Pull a repo's text files straight from the browser. Token optional for
+ * public repos (unauthenticated GitHub rate limits apply), required for
+ * private ones.
+ */
+export async function fetchRepoFiles(
+  token: string,
+  repoFull: string,
+  onProgress: (done: number, total: number) => void,
+): Promise<ImportResult> {
+  const repo = await ghGet<{ default_branch: string }>(token, `/repos/${repoFull}`);
+  const tree = await ghGet<{
+    tree: { path: string; type: string; sha: string; size?: number }[];
+    truncated: boolean;
+  }>(token, `/repos/${repoFull}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`);
+
+  const wanted = tree.tree.filter((e) => {
+    if (e.type !== "blob" || SKIP_DIRS.test(e.path)) return false;
+    if ((e.size ?? 0) > MAX_FILE_BYTES) return false;
+    const base = e.path.split("/").pop() ?? "";
+    return TEXT_EXT.test(e.path) || DOTFILE_ALLOW.has(base) || base === "LICENSE";
+  });
+  const skipped = tree.tree.filter((e) => e.type === "blob").length - wanted.length;
+
+  if (wanted.length === 0) throw new Error("No importable text files found in this repo.");
+  if (wanted.length > MAX_FILES)
+    throw new Error(`Repo has ${wanted.length} text files — over the ${MAX_FILES}-file import cap for now.`);
+  if (tree.truncated)
+    throw new Error("GitHub truncated the file tree (repo too large to import in-browser).");
+
+  const files: Record<string, string> = {};
+  const BATCH = 6;
+  let done = 0;
+  onProgress(0, wanted.length);
+  for (let i = 0; i < wanted.length; i += BATCH) {
+    const batch = wanted.slice(i, i + BATCH);
+    await Promise.all(
+      batch.map(async (e) => {
+        const blob = await ghGet<{ content: string; encoding: string }>(
+          token,
+          `/repos/${repoFull}/git/blobs/${e.sha}`,
+        );
+        files[e.path] =
+          blob.encoding === "base64" ? decodeBase64Utf8(blob.content) : blob.content;
+        done++;
+        onProgress(done, wanted.length);
+      }),
+    );
+  }
+  return { files, defaultBranch: repo.default_branch, skipped };
+}
+
 export interface PrResult {
   prUrl: string;
   branch: string;
